@@ -4,17 +4,21 @@ import pandas as pd
 from typing import Optional
 import requests
 from datetime import datetime
+import socket
 
 username = "TAKA00003"
 password = "d47157548a35e8c1e27b9e61c54244999a1eef8a9b8b4a93f170ae4110677f81"
 ctStatusUrl = "https://fleetapi-id.cartrack.com/rest/vehicles/status"
-takariUrl = "http://traccar.haleyorapower.co.id:5055/"
-dirData = ""
+takariUrl = "http://traccar.haleyorapower.co.id:5059/post_position"
+takariAuth = "SG9tZUZ1bGxzdGFjazpVcjFwTUBtcDFyTmdPbWIz"
+dirData = "20260320-TAKA00003-IMEI.xlsx"
 
 def getStatusData(registration: str):
-    response = requests.get(ctStatusUrl, auth=(username, password), params={"registration": registration})
+    response = requests.get(ctStatusUrl, auth=(username, password), params={"filter[registration]": registration})
+    print(f"Full URL Cartrack = {response.url}")
     if response.status_code == 200:
         print(f"HTTP request successful. Status code: {response.status_code}")
+        print(f"Response Data : {response.text}")
         print(f"Data fetched successfully for {registration}")
         return response.json()
     else:
@@ -25,7 +29,7 @@ def getStatusData(registration: str):
 def getVehicleList() -> list:
     try:
         df = pd.read_excel(f"{dirData}")
-        return df["registration"].tolist(), df["imei"].tolist()
+        return df["Registration"].tolist(), df["IMEI"].tolist()
     except Exception as e:
         print(f"Error reading vehicle list: {e}")
         return []
@@ -39,14 +43,14 @@ def reformatTimestamp(timestamp: Optional[str]) -> Optional[str]:
     except ValueError:
         return timestamp
 
-def bodyBuilderTakari(vehicle: dict) -> dict:
+def bodyBuilderTakari(vehicle: dict, imei: str) -> dict:
     location = vehicle.get("location") or {}
     coords = {
-        "latitude": vehicle.get("latitude"),
-        "longitude": vehicle.get("longitude"),
-        "accuracy": vehicle.get("gps_fix_type"),
+        "latitude": location.get("latitude"),
+        "longitude": location.get("longitude"),
+        "accuracy": location.get("gps_fix_type"),
         "speed": vehicle.get("speed"),
-        "heading": vehicle.get("brearing"),
+        "heading": vehicle.get("bearing"),
         "altitude": vehicle.get("altitude")
     }
     battery_pct = vehicle.get("tcu_percentage")
@@ -68,7 +72,7 @@ def bodyBuilderTakari(vehicle: dict) -> dict:
             "activity": {"type": ""},
             "extras": {k: v for k, v in extras.items() if v not in (None, "", [])},
         },
-        "device_id": 0,
+        "device_id": {"imei": imei},
     }
 
     return body
@@ -76,7 +80,8 @@ def bodyBuilderTakari(vehicle: dict) -> dict:
 def sendToTakari(data: dict):
     print(f"Sending data to Takari: {json.dumps(data)}")
     print(f"URL: {takariUrl}")
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json",
+               "Authorization": f"Basic {takariAuth}"}
     try:
         response = requests.post(takariUrl, headers=headers, data=json.dumps(data), timeout=30)
         if response.status_code == 200:
@@ -89,12 +94,13 @@ def sendToTakari(data: dict):
 
 def main() -> None:
     try:
-        vehiclesList = getVehicleList()
-        for registration in vehiclesList[0] :
-            print(f"Processing vehicle: {registration}")
+        registrations, imeis = getVehicleList()
+        for registration, imei in zip(registrations, imeis):
+            print(f"Processing vehicle: {registration} with IMEI: {imei}")
             statusData = getStatusData(registration)
-            if statusData and "vehicle" in statusData:
-                body = bodyBuilderTakari(statusData["vehicle"])
+            if statusData and "data" in statusData and len(statusData["data"]) > 0:
+                vehicle = statusData["data"][0]
+                body = bodyBuilderTakari(vehicle, imei)
                 sendToTakari(body)
             else:
                 print(f"No valid data for {registration}")
