@@ -1,10 +1,10 @@
 import json
 import time
-import pandas as pd
-from typing import Optional
 import requests
+import pandas as pd
+import logging
+from typing import Optional
 from datetime import datetime
-import socket
 
 username = "TAKA00003"
 password = "d47157548a35e8c1e27b9e61c54244999a1eef8a9b8b4a93f170ae4110677f81"
@@ -13,17 +13,27 @@ takariUrl = "http://traccar.haleyorapower.co.id:5059/post_position"
 takariAuth = "SG9tZUZ1bGxzdGFjazpVcjFwTUBtcDFyTmdPbWIz"
 dirData = "20260320-TAKA00003-IMEI.xlsx"
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - [TAKARI-INTEGRATION] - %(message)s",
+    handlers=[
+        logging.FileHandler('sendData.log'),  # Log to file
+        logging.StreamHandler()  # Also print to console
+    ]
+)
+logger = logging.getLogger(__name__)
+
 def getStatusData(registration: str):
     response = requests.get(ctStatusUrl, auth=(username, password), params={"filter[registration]": registration})
-    print(f"Full URL Cartrack = {response.url}")
+    logger.info(f"Full URL Cartrack = {response.url}")
     if response.status_code == 200:
-        print(f"HTTP request successful. Status code: {response.status_code}")
-        print(f"Response Data : {response.text}")
-        print(f"Data fetched successfully for {registration}")
+        logger.info(f"HTTP request successful. Status code: {response.status_code}")
+        logger.info(f"Response Data : {response.text}")
+        logger.info(f"Data fetched successfully for {registration}")
         return response.json()
     else:
-        print(f"Failed to fetch data. Status code: {response.status_code}")
-        print(f"Response content: {response.text}")
+        logger.error(f"Failed to fetch data. Status code: {response.status_code}")
+        logger.error(f"Response content: {response.text}")
         return None
     
 def getVehicleList() -> list:
@@ -31,7 +41,7 @@ def getVehicleList() -> list:
         df = pd.read_excel(f"{dirData}")
         return df["Registration"].tolist(), df["IMEI"].tolist()
     except Exception as e:
-        print(f"Error reading vehicle list: {e}")
+        logger.error(f"Error reading vehicle list: {e}")
         return []
 
 def reformatTimestamp(timestamp: Optional[str]) -> Optional[str]:
@@ -78,8 +88,8 @@ def bodyBuilderTakari(vehicle: dict, imei: str) -> dict:
     return body
 
 def sendToTakari(data: dict):
-    print(f"Sending data to Takari: {json.dumps(data)}")
-    print(f"URL: {takariUrl}")
+    logger.info(f"Sending Data to Takari: {json.dumps(data)}")
+    logger.info(f"URL: {takariUrl}")
     headers = {"Content-Type": "application/json",
                "Authorization": f"Basic {takariAuth}"}
     try:
@@ -87,25 +97,26 @@ def sendToTakari(data: dict):
         if response.status_code == 200:
             print(f"Status Code: {response.status_code}. Data sent successfully to Takari")
         else:
-            print(f"Failed to send data. Status code: {response.status_code}")
-            print(f"Response content: {response.text}")
+            logger.error(f"Failed to send data. Status code: {response.status_code}")
+            logger.error(f"Response content: {response.text}")
     except Exception as e:
-        print(f"Error sending data to Takari: {e}")
+        logger.error(f"Error sending data to Takari: {e}")
 
 def main() -> None:
     try:
+        logger.info("Start Service")
         registrations, imeis = getVehicleList()
         for registration, imei in zip(registrations, imeis):
-            print(f"Processing vehicle: {registration} with IMEI: {imei}")
+            logger.info(f"Processing vehicle: {registration} with IMEI: {imei}")
             statusData = getStatusData(registration)
             if statusData and "data" in statusData and len(statusData["data"]) > 0:
                 vehicle = statusData["data"][0]
                 body = bodyBuilderTakari(vehicle, imei)
                 sendToTakari(body)
             else:
-                print(f"No valid data for {registration}")
+                logger.warning(f"No valid data for {registration}")
     except Exception as e:
-        print(f"Error in main execution: {e}")
+        logger.error(f"Error in main execution: {e}")
 
 if __name__ == "__main__":
     main()
