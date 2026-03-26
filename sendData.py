@@ -129,23 +129,12 @@ def main() -> None:
         logger.error(f"Error in main execution: {e}")
 
 def scheduler():
-    startTime = datetime.now()
-    time.sleep(5)
-
     while True:
-        endTime = datetime.now()
-
-        startTimeStr = startTime.strftime("%Y-%m-%d %H:%M:%S")
-        endTimeStr = endTime.strftime("%Y-%m-%d %H:%M:%S")
-
-        logger.info(f"Running scheduled task - Start: {startTimeStr}, End: {endTimeStr}")
-        
+        logger.info(f"Running scheduled task")
         try:
             main()
-            startTime = endTime
         except Exception as e:
             logger.error(f"Error in scheduled task: {e}")
-
         time.sleep(60)  # Run every 60 seconds
 
 
