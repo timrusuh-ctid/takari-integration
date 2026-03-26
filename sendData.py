@@ -3,8 +3,9 @@ import time
 import requests
 import pandas as pd
 import logging
+import threading
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 username = "TAKA00003"
 password = "d47157548a35e8c1e27b9e61c54244999a1eef8a9b8b4a93f170ae4110677f81"
@@ -49,8 +50,17 @@ def reformatTimestamp(timestamp: Optional[str]) -> Optional[str]:
         return None
     ts = timestamp.replace("Z","+00:00")
     try:
-        return datetime.fromisoformat(ts).isoformat()
+        dt = datetime.fromisoformat(ts)
+        # Convert to UTC if it has timezone info
+        if dt.tzinfo:
+            dt = dt.astimezone(timezone.utc)
+        else:
+            # Assume UTC if no timezone info
+            dt = dt.replace(tzinfo=timezone.utc)
+        # Format as ISO 8601 with milliseconds and Z suffix
+        return dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
     except ValueError:
+        logger.warning(f"Failed to parse timestamp: {timestamp}")
         return timestamp
 
 def bodyBuilderTakari(vehicle: dict, imei: str) -> dict:
@@ -82,7 +92,7 @@ def bodyBuilderTakari(vehicle: dict, imei: str) -> dict:
             "activity": {"type": ""},
             "extras": {k: v for k, v in extras.items() if v not in (None, "", [])},
         },
-        "device_id": {"imei": imei},
+        "device_id": f"{imei}"
     }
 
     return body
@@ -95,7 +105,7 @@ def sendToTakari(data: dict):
     try:
         response = requests.post(takariUrl, headers=headers, data=json.dumps(data), timeout=30)
         if response.status_code == 200:
-            print(f"Status Code: {response.status_code}. Data sent successfully to Takari")
+             logger.info(f"Status Code: {response.status_code}. Data sent successfully to Takari")
         else:
             logger.error(f"Failed to send data. Status code: {response.status_code}")
             logger.error(f"Response content: {response.text}")
@@ -118,5 +128,35 @@ def main() -> None:
     except Exception as e:
         logger.error(f"Error in main execution: {e}")
 
+def scheduler():
+    startTime = datetime.now()
+    time.sleep(5)
+
+    while True:
+        endTime = datetime.now()
+
+        startTimeStr = startTime.strftime("%Y-%m-%d %H:%M:%S")
+        endTimeStr = endTime.strftime("%Y-%m-%d %H:%M:%S")
+
+        logger.info(f"Running scheduled task - Start: {startTimeStr}, End: {endTimeStr}")
+        
+        try:
+            main()
+            startTime = endTime
+        except Exception as e:
+            logger.error(f"Error in scheduled task: {e}")
+
+        time.sleep(60)  # Run every 60 seconds
+
+
 if __name__ == "__main__":
-    main()
+    logger.info("Server started. Press Ctrl+C to stop.")
+    thread = threading.Thread(target=scheduler)
+    thread.daemon = True
+    thread.start()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Server stopped.")
